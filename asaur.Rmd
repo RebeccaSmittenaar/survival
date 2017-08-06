@@ -1,0 +1,203 @@
+---
+title: "Applied Survival Analysis Using R"
+output: html_notebook
+---
+
+Notes from the Survival Analysis Textbook. 
+
+#install packages
+```{r}
+install.packages("asaur")
+install.packages("survival")
+install.packages("KMsurv")
+```
+#load packages
+```{r}
+library("asaur")
+library("survival")
+library("KMsurv")
+```
+
+
+# Censoring
+
+* right censoring - when final endpoint is known only to exceed a particular value
+* left censoring - events known to have occured before a time
+* interval censoring - failure time is known to have occured within an interval
+* Type 1 censoring - censoring times are pre-specified (eg., after 10 years)
+* Type 2 censoring - when a pre-specified fraction have failed
+* random censoring - have to make sure this is happening truly at random (aka non-informative)
+
+# Hazard and Survival Functions - ways of specifying survival distribution
+* survival func - probability of surviving up to point t
+* hazard func - instantaneous fail rate/force of mortality. probablity that given that subject has survived up to time t, they will fail in the next interval, divided by lenght of that interval.
+*cumulative distribution function/cumulative risk function f(t) - complement of the survival function s(t)
+*probability density function - rate of change of the CDF/minus the rate of change of the survival function
+*hazard function - h(t) = f(t)/s(t) - hazard at t is prob that event occurs in the neighbourhood of time t divided by the probabilty that the subject is alive at time t. 
+*cumulative hazard function - area under hazard function up to time t
+
+# mean and median survival time
+
+* mean - expected value of the survival time - only defined when all subjects fail. (work around of specifying a maximum possible survival time so that integral becomes finite)
+* median - point at which half the sample have failed
+
+# Parametric survival distributions
+* exponential - constant hazard h(t)=lambda (ie. unrealistic)
+* weibull - alpha parameter defines hazard over time, alpha > 1 is increasing (alpha == 1 == exponential)
+* gamma - as above (notation typically beta)
+* log normal
+* log logistic
+* Pareto
+
+# Q: how to estimate prob of surviving up to certain point from either the survival or the hazard function
+```{r}
+#cdf weibull
+weibSurv <- function(t, shape, scale) pweibull(t,shape=shape, scale=scale, lower.tail = F)
+curve(weibSurv(x, shape=1.5, scale=1/0.03), from=0, to=80, ylim=c(0,1),ylab='Survival Probability', xlab='Time')
+#pdf weibull
+weibHaz <- function(x, shape, scale) dweibull(x, shape=shape, scale=scale)/pweibull(x, shape=shape, scale=scale, lower.tail = F)
+curve(weibHaz(x, shape=1.5, scale=1/0.03), from = 0, to = 80, ylab='Hazard', xlab='Time', col="red")
+
+#generate random variables 
+tt.weib <- rweibull(1000, shape = 1.5, scale = 1/0.03)
+
+#compute empirical mean and median for weibull
+emp_mean <- mean(tt.weib)
+emp_median <- median(tt.weib)
+
+#compute theoretical mean and median for weibull
+the_mean <- gamma(1+1/1/5)/0.03 #gamma function NOT gamma distribution
+the_median <- (log(2)^(1/1.5))/0.03
+
+#gamma Haz function
+gammaHaz <- {function(x, shape, scale) dgamma(x, shape=shape, scale=scale)/pgamma(x, shape=shape, scale=scale, lower.tail = F)}
+curve(gammaHaz(x, shape=1.5, scale=1/0.03), from = 0, to = 80, ylab='Hazard', xlab='Time', col="red")
+
+#plotting hazard function
+tm <- c(0,1/365,7/365,28/365,1:110) #birth, 1st day of life etc
+hazMale <- survexp.us[,"male","2004"]
+tm.diff <- diff(tm)
+survMale <- exp(-cumsum(hazMale*tm.diff)*365.24) #cumsum - cumulative haz func, can be used to get surv function
+mean_age_death <- sum(survMale*tm.diff) #area under hazard function
+```
+#Regression analysis using proportional hazards
+
+
+
+```{r}
+
+```
+
+
+
+
+#Parametric Models
+* Useful to work with when the survival data can be shown to follow a more parametric form. Much easier to work with than non-parametric models. 
+* Defined by a small and fixed number of parameters. Can use likelihood theory for parameter estimation and inference. 
+* Can accomodate complex censoring and truncation patterns
+
+```{r}
+#assess how well survival data follows Weibull Distribution
+library(asaur)
+attach(pharmacoSmoking)
+#timeMonths <- gastricXelox$timeWeeks*7/30.25
+#delta <- gastricXelox$delta
+ttr[ttr == 0] <- 0.5
+
+library(survival)
+result.km <- survfit(Surv(ttr, relapse) ~ 1) #KM estimate of survival distribution
+plot(result.km$surv, result.km$time) #manually change size of plot screen if this throws an error 
+
+#take the complementary log-log transformation (to get Haz func where rate parameter = 1 as for this value the weibull reduces to exponential dist)
+survEst <- result.km$surv
+survTime <- result.km$time
+logLogSurvEst <- log(-log(survEst)) 
+logSurvTime <- log(survTime)
+
+plot(logLogSurvEst - logSurvTime)
+result.lm <- lm(logLogSurvEst ~ logSurvTime)
+abline(result.lm) #if plotted points fall on fitted line - Weibull dist is a good model for distribution
+
+#MLE estimation of Weibull parameters for 1 group survival data
+logLikWeib <- function(par, tt, status){
+  mu <- par[1]
+  sigma <- par[2] 
+  lambda.p <- exp(-mu)
+  alpha.p <- 1/sigma
+  dd <- sum(status)
+  sum.t <- sum(status*log(tt))
+  sum.t.alpha <- sum(tt^alpha.p)
+  term.1 <- dd*log(alpha.p) + alpha.p*dd*log(lambda.p)
+  term.2 <- (alpha.p - 1)*sum.t
+  term.3 <- (lambda.p^alpha.p)*sum.t.alpha
+  result <- term.1 + term.2 - term.3
+  result
+}
+
+#using mu and sigma from linear regression (from testing weibull dist)
+mu <- -result.lm$coefficients[1]/result.lm$coefficients[2] #mu = -b/mean
+sigma <- 1/result.lm$coefficients[2] #sigma = 1/mean  
+result <- optim(par=c(mu, sigma), fn=logLikWeib, method = 
+                  "L-BFGS-B",
+                lower=c(0.001, 0.01), upper=c(5,5),
+                control = list(fnscale = -1), #optim function to find a maximum
+                tt=survTime, status=1) #survTime = how long until Status = death
+
+#mu-hat and sigma-hat from result$par
+
+#can also be estimated using the survival package
+result.survreg.0 <- survreg(Surv(timeMonths, delta) ~ 1,
+dist="weibull")
+summary(result.survreg.0)
+
+#Profile Weibull likelihood
+logLikWeibProf <- function(par, tt,status){
+  #find log-likelihood for a particular sigma, using mle for mu
+  sigma <- par
+  alpha.p <- 1/sigma
+  dd <- sum(status)
+  sum.t <- sum(status*log(tt))
+  sum.t.alpha <-sum(tt^alpha.p)
+  lambda.p <- (dd/sum.t.alpha)^(1/alpha.p)
+  term.1 <- dd*log(alpha.p) + alpha.p*dd*log(lambda.p)
+  term.2 <- (alpha.p-1)*sum.t
+  term.3 <- (lambda.p^alpha.p)*sum.t.alpha
+  result <- term.1 + term.2 - term.3
+  result
+}
+
+resultProf <- optim(par=c(2.280), fn=logLikWeibProf, method="L-BFGS-B",
+                    lower=c(0.01),upper=c(5),control=list(fnscale=-1),
+                    tt=ttr,status=relapse)
+sigma.hat <- resultProf$par
+sigma.hat
+
+dd <- sum(relapse)
+sigma <- resultProf$par
+alpha.p <- 1/sigma.hat
+sum.t.alpha <- sum(ttr^alpha.p)
+lambda.p <- (dd/sum.t.alpha)^(1/alpha.p)
+mu.hat<- -log(lambda.p)
+mu.hat
+
+#plotting the likelihood in terms of sigma
+sigma.list <- (100:500)/100
+n.list <- length(sigma.list)
+logLik.list <- rep(NA, n.list)
+for (i in 1:n.list){
+  logLik.list[i] <- logLikWeibProf(par=sigma.list[i], ttr,
+                                   relapse) }
+plot(logLik.list ~ sigma.list, type="l", xlab="sigma",
+     ylab = "profile log-likelihood")
+abline(v=sigma.hat, col="gray")
+
+
+```
+
+```{r}
+
+```
+
+
+
+

@@ -1,0 +1,100 @@
+---
+title: "Relative Survival using the Pohar Perme estimator"
+output: html_notebook
+---
+
+#advantages
+*when cause specific mortality is not available or not good
+*excess mortality in a group of patients
+*epidemiological rather than RCT measure
+
+
+####additive models 
+*2 hazards - pop mortality + excess hazard due to disease = observed hazard
+#hakulinen-tenkanen additive survival model
+*k stratum for relevant predictor variables (age, sex, etc co-variates)
+*life table estimated for each co-variate
+*excess hazard is a multiplicative function of each covariates in each strata
+*interval specific observed and expected survival proportions
+*glm with binomial error strucutre with log-log link function / expected survival
+#glm with poisson error structure
+*same grouping as H-T
+*excess hazard is a multiplicative function of each covariates in each strata
+*deaths with a poisson distribution
+*glm with poisson error structure and ln offset
+#Esteve additive model
+*doesn't do strata as those before
+*individual data and estimates coeffecients using MLE approach
+
+
+####multiplicative models
+*2 hazards - pop mortality X excess hazard due to disease
+*does NOT assume the observed hazard is greater than the pop hazard
+#Andersen multiplicative model
+*same as cox regression model with time dependent co-variate with coeffecient = 1.
+
+
+####transformative models
+*makes no assumption about the relationship between the observed, excess and pop hazard
+*individual survival times are first transformed by cumulative distribution function of person of x age, y sex, z co-variates etc 
+*distribution function is calculated from general population mortality data
+*transforming to new scale takes population hazard into account leaving the disease specific hazard, which can be modelled using cox model for example. 
+
+
+# Load the data
+```{r}
+library(relsurv)
+library(survival)
+library(splines)
+library(date)
+
+data(rdata) #to add the dataset
+data(slopop) #to add the dataset
+summary(slopop)
+str(rdata)
+```
+# Fit the model and print the coefficients
+*time - survival time variable
+*cens - censoring variable
+*ratetable - matches up the data in the pop and survival datasets
+*int - no. of yearly intervals in the rsadd function (single number or vector)
+*na.action - how to handle missing data points
+*init - initial value
+*control - specifies the number of iterations
+
+*by default the youngest age group is the reference
+*positive coeffecients mean that survival is better
+*ratetable - array with all hazards per unit day
+*see appendix in paper for more info on ratetables
+#additive model with binomial error structure
+``` {r}
+attributes(slopop)$dimid #to match observed and pop data through function ratetable
+f = rsadd(Surv(time,cens)~sex+as.factor(agegr)+ ratetable(age=age*365.24,sex=sex,year=year),
+data=rdata,ratetable=slopop,int=5,method="glm.bin")
+summary(f)
+```
+#additive model with poisson error structure
+```{r}
+rsadd(Surv(time,cens)~sex+as.factor(agegr)+
+  ratetable(age=age*365.24,sex=sex,year=year),
+data=rdata,ratetable=slopop,int=5,method="glm.poi") 
+```
+#
+```{r}
+rsadd(Surv(time,cens)~sex+as.factor(agegr)+
+  ratetable(age=age*365.24,sex=sex,year=year),
+data=rdata,ratetable=slopop,int=5) 
+```
+#multiplicative model
+```{r}
+rsmul(Surv(time,cens)~sex+as.factor(agegr)+
+  ratetable(age=age*365.24,sex=sex,year=year),
+data=rdata,ratetable=slopop,int=5) 
+```
+#transformative model
+```{r}
+rstrans(Surv(time,cens)~sex+as.factor(agegr)+ ratetable(age=age*365.24,sex=sex,year=year),
+  data=rdata,ratetable=slopop,int=5)
+```
+
+
